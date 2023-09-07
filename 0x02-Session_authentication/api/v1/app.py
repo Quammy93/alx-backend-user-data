@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-new error handler for this status code
+Route module for the API
 """
 from os import getenv
 from api.v1.views import app_views
@@ -8,17 +8,57 @@ from flask import Flask, jsonify, abort, request
 from flask_cors import (CORS, cross_origin)
 import os
 
-
 app = Flask(__name__)
 app.register_blueprint(app_views)
 CORS(app, resources={r"/api/v1/*": {"origins": "*"}})
 auth = None
-if os.getenv('AUTH_TYPE') == 'auth':
+auth = os.getenv("AUTH_TYPE")
+
+if auth == "auth":
     from api.v1.auth.auth import Auth
+
     auth = Auth()
-elif os.getenv('AUTH_TYPE') == 'basic_auth':
+elif auth == "basic_auth":
     from api.v1.auth.basic_auth import BasicAuth
+
     auth = BasicAuth()
+elif auth == "session_auth":
+    from api.v1.auth.session_auth import SessionAuth
+
+    auth = SessionAuth()
+elif auth == "session_exp_auth":
+    from api.v1.auth.session_exp_auth import SessionExpAuth
+
+    auth = SessionExpAuth()
+elif auth == "session_db_auth":
+    from api.v1.auth.session_db_auth import SessionDBAuth
+
+    auth = SessionDBAuth()
+
+
+@app.before_request
+def auth_check():
+    """Check if the request requires auth."""
+    i_list = ['/api/v1/status/',
+              '/api/v1/unauthorized/',
+              '/api/v1/forbidden/',
+              '/api/v1/auth_session/login/']
+    if not auth:
+        return
+    if not auth.require_auth(request.path, i_list):
+        return
+    if not auth.authorization_header(request) and \
+            not auth.session_cookie(request):
+        abort(401)
+    if not auth.current_user(request):
+        abort(403)
+        return None
+
+
+@app.before_request
+def process_current_user():
+    """Get current user from request."""
+    request.current_user = auth.current_user(request)
 
 
 @app.errorhandler(404)
@@ -30,32 +70,24 @@ def not_found(error) -> str:
 
 @app.errorhandler(401)
 def unauthorized(error) -> str:
-    """ Unauthorized handler
+    """Unauthorized error handler.
+
+    Args:
+        error: error object
+    return: json str with status code
     """
     return jsonify({"error": "Unauthorized"}), 401
 
 
 @app.errorhandler(403)
 def forbidden(error) -> str:
-    """ Forbidden handler
+    """Forbidden error handler.
+
+    Args:
+        error: error object
+    return: json str with status code
     """
     return jsonify({"error": "Forbidden"}), 403
-
-
-@app.before_request
-def before_request() -> None:
-    """ Before request
-    """
-    paths = ['/api/v1/status/', '/api/v1/unauthorized/',
-             '/api/v1/forbidden/']
-    if not auth:
-        return None
-    if not auth.require_auth(request.path, paths):
-        return None
-    if not auth.authorization_header(request):
-        abort(401)
-    if not auth.current_user(request):
-        abort(403)
 
 
 if __name__ == "__main__":
